@@ -65,11 +65,15 @@ def generate_article_task(self, article_params: dict, webhook_url: str, metadata
         lm_configs = STORMWikiLMConfigs()
         
         # Common parameters for language models
+        # Disable caching in Railway or when DISABLE_LITELLM_CACHE is set to avoid __annotations__ error
+        disable_caching = os.getenv("RAILWAY_ENVIRONMENT") is not None or os.getenv("DISABLE_LITELLM_CACHE", "false").lower() == "true"
+        
         openai_kwargs = {
             'api_key': os.getenv("OPENROUTER_API_KEY"),
             'api_base': "https://openrouter.ai/api/v1",
             'temperature': 1.0,
             'top_p': 0.9,
+            'cache': not disable_caching,  # Disable caching to avoid deployment environment issues
         }
 
         llm_provider = article_params.get('openai')
@@ -165,10 +169,11 @@ def generate_article_task(self, article_params: dict, webhook_url: str, metadata
                     'type': 'search',
                     'engine': 'google'
                 }
+                logger.info("Using regular Google search for research")
                 
             # Add language to search query parameters
             # For Portuguese, setting gl parameter to 'br' (Brazil) or 'pt' (Portugal)
-            # and hl parameter to 'pt' (Portuguese language)
+            # and hl parameter to 'pt-br' (Portuguese language)
             if language == 'pt':
                 query_params['gl'] = 'br'  # Country: Brazil
                 query_params['hl'] = 'pt-br'  # Language: Portuguese
@@ -201,14 +206,25 @@ def generate_article_task(self, article_params: dict, webhook_url: str, metadata
         runner.language = language
         
         # Run article generation
-        result = runner.run(
-            topic=topic,
-            do_research=do_research,
-            do_generate_outline=do_generate_outline,
-            do_generate_article=do_generate_article,
-            do_polish_article=do_polish_article,
-            remove_duplicate=remove_duplicate
-        )
+        logger.info(f"Starting STORM runner - Topic: '{topic[:50]}...', Language: {language}")
+        logger.info(f"STORM options - Research: {do_research}, Outline: {do_generate_outline}, Article: {do_generate_article}, Polish: {do_polish_article}")
+        
+        try:
+            result = runner.run(
+                topic=topic,
+                do_research=do_research,
+                do_generate_outline=do_generate_outline,
+                do_generate_article=do_generate_article,
+                do_polish_article=do_polish_article,
+                remove_duplicate=remove_duplicate
+            )
+            logger.info("STORM runner completed successfully")
+        except Exception as e:
+            logger.error(f"STORM runner failed - Error: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise
         
         # List directory contents after generation
         logger.info(f"Files in {task_dir}:")
@@ -255,20 +271,34 @@ def generate_article_task(self, article_params: dict, webhook_url: str, metadata
                     logger.warning(f"Polished article file not found at {polished_path}")
             
             sources_path = task_dir / sanitize_topic(topic) / "url_to_info.json"
+            logger.info(f"Reading sources file: {sources_path.name}")
+            
             if sources_path.exists():
+                logger.info(f"Sources file found - Size: {sources_path.stat().st_size} bytes")
                 try:
                     sources_content = sources_path.read_text()
+                    
                     if sources_content.strip():
                         sources = json.loads(sources_content)
-                        logger.info(f"Read sources from {sources_path}, found {len(sources)} sources")
+                        logger.info(f"Sources loaded successfully - Found {len(sources)} sources")
                     else:
                         sources = {}
-                        logger.warning(f"Sources file is empty: {sources_path}")
+                        logger.warning(f"Sources file is empty")
                 except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON in sources file {sources_path}: {str(e)}")
+                    logger.error(f"Sources JSON parsing failed: {str(e)}")
+                    logger.error(f"Invalid content: '{sources_content[:200]}...'")
+                    sources = {}
+                except Exception as e:
+                    logger.error(f"Unexpected error reading sources: {str(e)}")
                     sources = {}
             else:
-                logger.warning(f"Sources file not found at {sources_path}")
+                logger.warning(f"Sources file not found")
+                # Check if the topic directory exists
+                topic_dir = task_dir / sanitize_topic(topic)
+                if topic_dir.exists():
+                    logger.info(f"Topic directory exists with {len(list(topic_dir.glob('*')))} files")
+                else:
+                    logger.warning(f"Topic directory does not exist: {topic_dir.name}")
                 sources = {}
             
             # Prepare success response
@@ -319,4 +349,11 @@ def generate_article_task(self, article_params: dict, webhook_url: str, metadata
             logger.info(f"Cleaned up directory: {task_dir}")
     
     # Send webhook with retries
-    send_webhook_with_retry(webhook_url, payload) 
+    logger.info(f"Sending webhook notification - Status: {payload.get('status')}")
+    
+    try:
+        send_webhook_with_retry(webhook_url, payload)
+        logger.info("Webhook notification sent successfully")
+    except Exception as e:
+        logger.error(f"Webhook notification failed: {str(e)}")
+        # Don't re-raise webhook errors as they shouldn't affect task completion 

@@ -464,23 +464,77 @@ class SerperRM(dspy.Retrieve):
         self.base_url = "https://google.serper.dev"
 
     def serper_runner(self, query_params):
-        self.search_url = f"{self.base_url}/search"
+        # Determine endpoint based on search type
+        if query_params.get('type') == 'scholar':
+            self.search_url = f"{self.base_url}/scholar"
+        else:
+            self.search_url = f"{self.base_url}/search"
+        
+        # Create simplified payload with only supported parameters
+        simplified_params = {
+            "q": query_params.get("q", "")
+        }
+        
+        # Add language parameters if present
+        if "gl" in query_params:
+            simplified_params["gl"] = query_params["gl"]
+        if "hl" in query_params:
+            simplified_params["hl"] = query_params["hl"]
 
         headers = {
             "X-API-KEY": self.serper_search_api_key,
             "Content-Type": "application/json",
         }
 
+        # Debug logging for Serper API call
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        search_type = "Scholar" if query_params.get('type') == 'scholar' else "Web"
+        logger.info(f"Serper {search_type} search - URL: {self.search_url}")
+        logger.info(f"Serper {search_type} search - Query: '{simplified_params.get('q', '')[:100]}...'")
+        logger.info(f"Serper {search_type} search - Language: gl={simplified_params.get('gl', 'none')}, hl={simplified_params.get('hl', 'none')}")
+
         response = requests.request(
-            "POST", self.search_url, headers=headers, json=query_params
+            "POST", self.search_url, headers=headers, json=simplified_params
         )
+        
+        logger.info(f"Serper {search_type} response - Status: {response.status_code}, Content: {len(response.text) if response.text else 0} chars")
+        
+        if response.status_code != 200:
+            logger.error(f"Serper {search_type} error - Response: '{response.text[:300] if response.text else 'EMPTY'}'")
+        else:
+            # Log successful response summary
+            try:
+                response_json = response.json()
+                organic_count = len(response_json.get('organic', []))
+                logger.info(f"Serper {search_type} success - Found {organic_count} results")
+            except:
+                logger.info(f"Serper {search_type} success - Valid response received")
 
         if response == None:
             raise RuntimeError(
                 f"Error had occurred while running the search process.\n Error is {response.reason}, had failed with status code {response.status_code}"
             )
 
-        return response.json()
+        # Check if response is successful and has content
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Serper API error: Status {response.status_code}, Response: {response.text}"
+            )
+        
+        # Check if response has content before parsing JSON
+        if not response.text or response.text.strip() == "":
+            raise RuntimeError(
+                f"Serper API returned empty response. Status: {response.status_code}, Headers: {dict(response.headers)}"
+            )
+        
+        try:
+            return response.json()
+        except requests.exceptions.JSONDecodeError as e:
+            raise RuntimeError(
+                f"Serper API returned invalid JSON. Status: {response.status_code}, Response: '{response.text[:500]}', Error: {str(e)}"
+            )
 
     def get_usage_and_reset(self):
         usage = self.usage
