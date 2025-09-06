@@ -256,10 +256,20 @@ def generate_article_task(self, article_params: dict, webhook_url: str, metadata
             
             sources_path = task_dir / sanitize_topic(topic) / "url_to_info.json"
             if sources_path.exists():
-                sources = json.loads(sources_path.read_text())
-                logger.info(f"Read sources from {sources_path}, found {len(sources)} sources")
+                try:
+                    sources_content = sources_path.read_text()
+                    if sources_content.strip():
+                        sources = json.loads(sources_content)
+                        logger.info(f"Read sources from {sources_path}, found {len(sources)} sources")
+                    else:
+                        sources = {}
+                        logger.warning(f"Sources file is empty: {sources_path}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON in sources file {sources_path}: {str(e)}")
+                    sources = {}
             else:
                 logger.warning(f"Sources file not found at {sources_path}")
+                sources = {}
             
             # Prepare success response
             payload = {
