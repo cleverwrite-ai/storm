@@ -464,6 +464,9 @@ class SerperRM(dspy.Retrieve):
         self.base_url = "https://google.serper.dev"
 
     def serper_runner(self, query_params):
+        # Initialize logger at the beginning of the function
+        logger = logging.getLogger(__name__)
+        
         # Determine endpoint based on search type
         if query_params.get('type') == 'scholar':
             self.search_url = f"{self.base_url}/scholar"
@@ -493,10 +496,7 @@ class SerperRM(dspy.Retrieve):
             "Content-Type": "application/json",
         }
 
-        # Debug logging for Serper API call
-        import logging
-        logger = logging.getLogger(__name__)
-        
+        # Debug logging for Serper API call        
         search_type = "Scholar" if query_params.get('type') == 'scholar' else "Web"
         logger.info(f"Serper {search_type} search - URL: {self.search_url}")
         logger.info(f"Serper {search_type} search - Query: '{simplified_params.get('q', '')[:100]}...'")
