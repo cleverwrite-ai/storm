@@ -471,8 +471,15 @@ class SerperRM(dspy.Retrieve):
             self.search_url = f"{self.base_url}/search"
         
         # Create simplified payload with only supported parameters
+        query_text = query_params.get("q", "").strip()
+        logger.info(f"Serper query validation - Raw query: '{query_params.get('q', 'NOT_FOUND')}', Stripped: '{query_text}', Length: {len(query_text)}")
+        
+        if not query_text:
+            logger.error(f"Empty query detected - Original: '{query_params.get('q', 'NOT_FOUND')}', All params: {list(query_params.keys())}")
+            raise ValueError("Missing or empty query parameter 'q' for Serper API")
+            
         simplified_params = {
-            "q": query_params.get("q", "")
+            "q": query_text
         }
         
         # Add language parameters if present

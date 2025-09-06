@@ -172,13 +172,16 @@ def generate_article_task(self, article_params: dict, webhook_url: str, metadata
                 logger.info("Using regular Google search for research")
                 
             # Add language to search query parameters
-            # For Portuguese, setting gl parameter to 'br' (Brazil) or 'pt' (Portugal)
-            # and hl parameter to 'pt-br' (Portuguese language)
+            # Default to English, then override for specific languages
             if language == 'pt':
                 query_params['gl'] = 'br'  # Country: Brazil
                 query_params['hl'] = 'pt-br'  # Language: Portuguese
-            elif language != 'en':
-                # Handle other languages
+            elif language == 'en':
+                query_params['gl'] = 'us'  # Country: United States
+                query_params['hl'] = 'en'  # Language: English
+            else:
+                # Handle other languages, default to English country
+                query_params['gl'] = 'us'
                 query_params['hl'] = language
                 
             rm = SerperRM(

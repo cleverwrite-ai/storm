@@ -26,3 +26,4 @@ secrets.toml
 *results/
 .venv/
 storm/
+run_locally*
